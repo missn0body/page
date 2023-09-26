@@ -1,8 +1,8 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -Wpedantic -g -Os
+CC = g++
+CFLAGS = -Wall -Wextra -Wpedantic -g -Os -std=c++20
 RM = rm
 
-page.o: page.c
+page.o: page.cpp
 	$(CC) -c $^ -o $@ $(CFLAGS)
 
 page: page.o

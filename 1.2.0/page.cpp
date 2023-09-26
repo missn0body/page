@@ -1,13 +1,21 @@
+// Let's make a scrolling pager!
+
+// STL libraries
 #include <iostream>
 #include <format>
 #include <regex>
+
+// C libraries
+#include <cstdlib>
+#include <cerrno> // for errno
+#include <cstring> // for strerror()
 
 //////////////////////////////////////
 // Utilites
 //////////////////////////////////////
 
 static inline std::regex operator  ""_r(const char *in, std::size_t len) { return std::regex(in, len); }
-inline std::string operator ""_p(const char *in, std::size_t len)
+static inline std::string operator ""_p(const char *in, std::size_t len)
 {
 	return std::regex_replace(std::string(in, len), "%[a-z]"_r, "{}");
 }
@@ -35,11 +43,46 @@ namespace
         }
 };
 
+void _error(const char *file, int line, const char *what)
+{
+	fprintf(std::cerr, "(%d:%d) %s: %s\n"_p, file, line, what, strerror(errno));
+	exit(EXIT_FAILURE);
+}
+
+#define error(x)	_error(__FILE__, __LINE__, x)
+
+//////////////////////////////////////
+// Terminal
+//////////////////////////////////////
+
+void setRaw() { printf("setRaw()"); return; };
+void revert() { printf("revert"); return; };
+
+//////////////////////////////////////
+// Structures
+//////////////////////////////////////
+
+class pg
+{
+	public:
+		pg();
+		~pg();
+};
+
+pg::pg() { setRaw(); }
+pg::~pg(){ revert(); }
+
 //////////////////////////////////////
 // main()
 //////////////////////////////////////
 
-int main(void)
+int main(int argc, char *argv[])
 {
-	return 0;
+	if(argc < 2)
+	{
+		fprintf(std::cerr, "%s: too few arguments\n"_p, argv[0]);
+		exit(EXIT_FAILURE);
+	}
+
+	exit(EXIT_SUCCESS);
 }
