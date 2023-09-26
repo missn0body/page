@@ -1,18 +1,34 @@
 // Let's make a scrolling pager!
+// Written by anson
 
 // STL libraries
 #include <iostream>
 #include <format>
 #include <regex>
+#include <vector>
 
 // C libraries
 #include <cstdlib>
 #include <cerrno> // for errno
 #include <cstring> // for strerror()
+#include <unistd.h>
+
+// POSIX libraries
+// If you don't recognize these headers, then get Linux
+#include <sys/ioctl.h>
+#include <termios.h>
+
+//////////////////////////////////////
+// Definitions
+//////////////////////////////////////
+
+const char *VERSION = "1.2.0";
 
 //////////////////////////////////////
 // Utilites
 //////////////////////////////////////
+
+#define CTRL_KEY(x)	((x) & 0x1f)
 
 static inline std::regex operator  ""_r(const char *in, std::size_t len) { return std::regex(in, len); }
 static inline std::string operator ""_p(const char *in, std::size_t len)
@@ -43,6 +59,8 @@ namespace
         }
 };
 
+// I'd rather you not call this function directly, instead
+// I would rather you call the macro below
 void _error(const char *file, int line, const char *what)
 {
 	fprintf(std::cerr, "(%d:%d) %s: %s\n"_p, file, line, what, strerror(errno));
@@ -55,22 +73,25 @@ void _error(const char *file, int line, const char *what)
 // Terminal
 //////////////////////////////////////
 
-void setRaw() { printf("setRaw()"); return; };
-void revert() { printf("revert"); return; };
-
-//////////////////////////////////////
-// Structures
-//////////////////////////////////////
-
 class pg
 {
+	private:
+		struct termios original, raw;
+		std::vector<std::string> scrBuf;
+
 	public:
 		pg();
 		~pg();
+
+		void setRaw();
+		void revert();
 };
 
 pg::pg() { setRaw(); }
 pg::~pg(){ revert(); }
+
+void pg::setRaw() { printf("setRaw()"); return; };
+void pg::revert() { printf("revert"); return; };
 
 //////////////////////////////////////
 // main()
