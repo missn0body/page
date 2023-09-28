@@ -6,15 +6,15 @@
 #include <format>
 #include <regex>
 #include <vector>
+#include <utility>
 
 // C libraries
 #include <cstdlib>
 #include <cerrno> // for errno
 #include <cstring> // for strerror()
-#include <unistd.h>
 
 // POSIX libraries
-// If you don't recognize these headers, then get Linux
+#include <unistd.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 
@@ -79,28 +79,37 @@ void _error(const char *file, int line, const char *what)
 class pg
 {
 	private:
-		int rows, cols;
-		int curX, curY;
-		int rowOff, colOff;
+		std::pair<int, int> dim;
+		std::pair<int, int> cursor;
+		std::pair<int, int> offset;
+
 		std::string filename;
 
 		struct termios original, raw;
-		std::vector<std::string> scrBuf;
+		std::string scrBuf;
 
 		bool rawMode = false;
+
+		bool getTermSize(int &row, int &col);
+		bool bfTermSize(int &row, int &col);
 	public:
 		pg();
 		~pg();
 
+		int getRows() { return this->dim.first; }
+		int getCols() { return this->dim.second; }
+
 		void setRaw();
 		void revert();
+
+		void draw();
+		void refresh();
 };
 
-// Cause this is what member initialization looks like :)
-pg::pg() : rows(0), cols(0), curX(0), curY(0), rowOff(0), colOff(0),
-	   filename("(null)")
+pg::pg() : dim(0, 0), cursor(0, 0), offset(0, 0), filename("(null)")
 {
 	setRaw();
+	getTermSize(this->dim.first, this->dim.second);
 }
 
 pg::~pg() { revert(); }
@@ -133,9 +142,63 @@ void pg::setRaw()
 	this->rawMode = true;
 };
 
-void refresh()
+bool pg::bfTermSize(int &row, int &col)
+{
+	std::string buf;
+	buf.reserve((std::size_t)32);
+
+	if(write(STDOUT_FILENO, "\033[6N", 4) == -1) return false;
+
+	for(char &index : buf)
+	{
+		if(read(STDIN_FILENO, &index, 1) != -1) break;
+		if(index == 'R') break;
+	}
+
+	if(buf.at(0) != '\033' || buf.at(1) != '[') return false;
+	if(buf.find(";") != std::string::npos) return false;
+
+	row = std::stoi(buf.substr(0, buf.find(";")));
+	col = std::stoi(buf.substr(buf.find(";") + 1));
+
+	return true;
+}
+
+// The easy way to get terminal size: just ask for it.
+bool pg::getTermSize(int &row, int &col)
+{
+	struct winsize term;
+	if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &term) == -1 || term.ws_col == 0)
+	{
+		if(write(STDOUT_FILENO, "\033[999C\033[999B", 12) != 12) return false;
+		return bfTermSize(row, col);
+	}
+	else
+	{
+		this->dim = std::make_pair(term.ws_col, term.ws_row);
+		return true;
+	}
+}
+
+void pg::draw()
+{
+	for(int y = 0; y < this->dim.first; y++)
+	{
+		write(STDOUT_FILENO, "`", 1);
+		if(y < (this->dim.first - 1))
+		{
+			write(STDOUT_FILENO, "\r\n", 2);
+		}
+	}
+}
+
+void pg::refresh()
 {
 	write(STDOUT_FILENO, "\033[2J", 4);
+	write(STDOUT_FILENO, "\033[H", 3);
+
+	this->draw();
+
 	write(STDOUT_FILENO, "\033[H", 3);
 }
 
@@ -179,7 +242,7 @@ int main()
 
 	while(1 > 0)
 	{
-		refresh();
+		mainScreen.refresh();
 		if(parseKeys() == false) break;
 	}
 
