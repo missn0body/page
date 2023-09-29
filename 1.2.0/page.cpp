@@ -41,12 +41,6 @@ static inline std::string operator ""_p(const char *in, std::size_t len)
 namespace
 {
 	template<typename... Args>
-	inline void printf(const std::string_view &format, Args&&... args)
-	{
-		std::cout << std::vformat(format, std::make_format_args(args...));
-	}
-
-	template<typename... Args>
 	inline std::string sprintf(const std::string_view &format, Args&&... args)
 	{
 		return std::vformat(format, std::make_format_args(args...));
@@ -96,31 +90,31 @@ class pg
 		pg();
 		~pg();
 
-		int getRows() { return this->dim.first; }
-		int getCols() { return this->dim.second; }
+		int getRows() const { return this->dim.first; }
+		int getCols() const { return this->dim.second; }
 
-		void setRaw();
-		void revert();
+		void setRaw(void);
+		void revert(void);
 
-		void draw();
-		void refresh();
+		void draw(void);
+		void refresh(void);
 };
 
 pg::pg() : dim(0, 0), cursor(0, 0), offset(0, 0), filename("(null)")
 {
 	setRaw();
-	getTermSize(this->dim.first, this->dim.second);
+	if(getTermSize(this->dim.first, this->dim.second) == false) error("getTermSize");
 }
 
 pg::~pg() { revert(); }
 
-void pg::revert()
+void pg::revert(void)
 {
 	if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &this->original) == -1) error("tcsetattr");
 };
 
 // As antirez says: "1960s magic shit" below.
-void pg::setRaw()
+void pg::setRaw(void)
 {
 	if(this->rawMode == true) return;
 	if(tcgetattr(STDIN_FILENO, &this->original) == -1) error("tcgetattr");
@@ -142,17 +136,16 @@ void pg::setRaw()
 	this->rawMode = true;
 };
 
+// ...or brute force it using escape codes.
 bool pg::bfTermSize(int &row, int &col)
 {
-	std::string buf;
-	buf.reserve((std::size_t)32);
-
+	std::string buf(32, '0');
 	if(write(STDOUT_FILENO, "\033[6N", 4) == -1) return false;
 
-	for(char &index : buf)
+	for(unsigned i = 0; i < 31; i++)
 	{
-		if(read(STDIN_FILENO, &index, 1) != -1) break;
-		if(index == 'R') break;
+		if(read(STDIN_FILENO, &buf.at(i), 1) != -1) break;
+		if(buf.at(i) == 'R') break;
 	}
 
 	if(buf.at(0) != '\033' || buf.at(1) != '[') return false;
@@ -175,55 +168,76 @@ bool pg::getTermSize(int &row, int &col)
 	}
 	else
 	{
-		this->dim = std::make_pair(term.ws_col, term.ws_row);
+		this->dim = std::make_pair(term.ws_row, term.ws_col);
 		return true;
 	}
 }
 
-void pg::draw()
+// Draws the entire screen.
+void pg::draw(void)
 {
-	for(int y = 0; y < this->dim.first; y++)
+	for(int y = 0; y < this->getRows(); y++)
 	{
-		write(STDOUT_FILENO, "`", 1);
-		if(y < (this->dim.first - 1))
+		if(y == (this->getRows() / 3))
 		{
-			write(STDOUT_FILENO, "\r\n", 2);
+			std::string message = sprintf("welcome to page. (version %s)"_p, VERSION);
+
+			int padding = (this->getCols() - message.length()) / 2;
+			if(padding) { while(padding--) this->scrBuf.append(" ", 1); }
+			this->scrBuf.append(message);
+		}
+
+		else this->scrBuf.append("`", 1);
+
+		this->scrBuf.append("\033[K", 3);
+		if(y < (this->getRows() - 1))
+		{
+			this->scrBuf.append("\r\n", 2);
 		}
 	}
 }
 
-void pg::refresh()
+// We use the private std::string as an append buffer,
+// So we can avoid flickering by printing the entire
+// screen all at once.
+void pg::refresh(void)
 {
-	write(STDOUT_FILENO, "\033[2J", 4);
-	write(STDOUT_FILENO, "\033[H", 3);
+	this->scrBuf.append("\033[?25l", 6);
+	this->scrBuf.append("\033[H", 3);
 
 	this->draw();
 
-	write(STDOUT_FILENO, "\033[H", 3);
+	this->scrBuf.append("\033[H", 3);
+	this->scrBuf.append("\033[?25h", 6);
+
+	// Just in case.
+	write(STDOUT_FILENO, this->scrBuf.data(), this->scrBuf.length());
+	this->scrBuf.clear();
 }
 
-char readch()
+// Reads a single unbuffered character from stdin.
+char readch(void)
 {
 	int result;
-	char returnType;
-
-	while((result = read(STDIN_FILENO, &returnType, 1)) == -1)
+  	char c;
+  	while((result = read(STDIN_FILENO, &c, 1)) != 1)
 	{
-		if(result == -1 && errno != EAGAIN) error("read");
-	}
-	return returnType;
+    		if(result == -1 && errno != EAGAIN) error("read");
+  	}
+  	return c;
 }
 
 // Returns a request for an exit, true for exit request and
 // false for otherwise. The reason we're doing this is so
 // that the deconstructor for 'pg' has the chance to actually
 // run, rather than exiting here
-bool parseKeys()
+bool parseKeys(void)
 {
 	char in = readch();
 	switch(in)
 	{
 		case CTRL_KEY('q'):
+		case '\n':
 			write(STDOUT_FILENO, "\033[2J", 4);
         		write(STDOUT_FILENO, "\033[H", 3);
 			return false;
