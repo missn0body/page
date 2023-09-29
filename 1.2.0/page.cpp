@@ -90,16 +90,11 @@ class pg
 		pg();
 		~pg();
 
-<<<<<<< HEAD
 		int getRows() const { return this->dim.first; }
 		int getCols() const { return this->dim.second; }
 
 		void setRaw(void);
 		void revert(void);
-=======
-		void setRaw();
-		void revert();
->>>>>>> baa7e0bd3b1f2d3148208f337218bcb55d7b56e3
 
 		void draw(void);
 		void refresh(void);
@@ -179,11 +174,7 @@ bool pg::getTermSize(int &row, int &col)
 }
 
 // Draws the entire screen.
-<<<<<<< HEAD
 void pg::draw(void)
-=======
-void pg::draw()
->>>>>>> baa7e0bd3b1f2d3148208f337218bcb55d7b56e3
 {
 	for(int y = 0; y < this->getRows(); y++)
 	{
@@ -225,20 +216,11 @@ void pg::refresh(void)
 }
 
 // Reads a single unbuffered character from stdin.
-<<<<<<< HEAD
 char readch(void)
 {
 	int result;
   	char c;
   	while((result = read(STDIN_FILENO, &c, 1)) != 1)
-=======
-char readch()
-{
-	int result;
-	char returnType;
-
-	while((result = read(STDIN_FILENO, &returnType, 1)) != -1)
->>>>>>> baa7e0bd3b1f2d3148208f337218bcb55d7b56e3
 	{
     		if(result == -1 && errno != EAGAIN) error("read");
   	}
