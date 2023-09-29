@@ -41,12 +41,6 @@ static inline std::string operator ""_p(const char *in, std::size_t len)
 namespace
 {
 	template<typename... Args>
-	inline void printf(const std::string_view &format, Args&&... args)
-	{
-		std::cout << std::vformat(format, std::make_format_args(args...));
-	}
-
-	template<typename... Args>
 	inline std::string sprintf(const std::string_view &format, Args&&... args)
 	{
 		return std::vformat(format, std::make_format_args(args...));
@@ -96,9 +90,6 @@ class pg
 		pg();
 		~pg();
 
-		int getRows() { return this->dim.first; }
-		int getCols() { return this->dim.second; }
-
 		void setRaw();
 		void revert();
 
@@ -142,14 +133,13 @@ void pg::setRaw()
 	this->rawMode = true;
 };
 
+// ...or brute force it using escape codes.
 bool pg::bfTermSize(int &row, int &col)
 {
-	std::string buf;
-	buf.reserve((std::size_t)32);
-
+	std::string buf(32, '0');
 	if(write(STDOUT_FILENO, "\033[6N", 4) == -1) return false;
 
-	for(char &index : buf)
+	for(unsigned i = 0; i < 31; i++)
 	{
 		if(read(STDIN_FILENO, &index, 1) != -1) break;
 		if(index == 'R') break;
@@ -180,6 +170,7 @@ bool pg::getTermSize(int &row, int &col)
 	}
 }
 
+// Draws the entire screen.
 void pg::draw()
 {
 	for(int y = 0; y < this->dim.first; y++)
@@ -202,12 +193,13 @@ void pg::refresh()
 	write(STDOUT_FILENO, "\033[H", 3);
 }
 
+// Reads a single unbuffered character from stdin.
 char readch()
 {
 	int result;
 	char returnType;
 
-	while((result = read(STDIN_FILENO, &returnType, 1)) == -1)
+	while((result = read(STDIN_FILENO, &returnType, 1)) != -1)
 	{
 		if(result == -1 && errno != EAGAIN) error("read");
 	}
