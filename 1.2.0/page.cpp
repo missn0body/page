@@ -24,6 +24,10 @@
 
 const char *VERSION = "1.2.0";
 
+enum {  ARROW_UP = 1000,
+	ARROW_DOWN, ARROW_LEFT, ARROW_RIGHT,
+	HOME_KEY, END_KEY, PAGE_UP, PAGE_DOWN };
+
 //////////////////////////////////////
 // Utilites
 //////////////////////////////////////
@@ -80,12 +84,17 @@ class pg
 		std::string filename;
 
 		struct termios original, raw;
+
 		std::string scrBuf;
+		std::string row;
+		int numRows;
 
 		bool rawMode = false;
 
+		static int readch(void);
+
 		bool getTermSize(int &row, int &col);
-		bool bfTermSize(int &row, int &col);
+		static bool bfTermSize(int &row, int &col);
 	public:
 		pg();
 		~pg();
@@ -94,15 +103,21 @@ class pg
 		int getCols() const { return this->dim.second; }
 
 		void setRaw(void);
+		void pgOpen(void);
 		void revert(void);
 
 		void draw(void);
 		void refresh(void);
+
+		void moveCursor(int key);
+		bool parseKeys(void);
 };
 
-pg::pg() : dim(0, 0), cursor(0, 0), offset(0, 0), filename("(null)")
+pg::pg() : dim(0, 0), cursor(0, 0), offset(0, 0), filename("(null)"), numRows(0);
 {
-	setRaw();
+	this->setRaw();
+	this->pgOpen();
+
 	if(getTermSize(this->dim.first, this->dim.second) == false) error("getTermSize");
 }
 
@@ -136,6 +151,11 @@ void pg::setRaw(void)
 	this->rawMode = true;
 };
 
+void pg::pgOpen(void)
+{
+	return;
+}
+
 // ...or brute force it using escape codes.
 bool pg::bfTermSize(int &row, int &col)
 {
@@ -163,6 +183,8 @@ bool pg::getTermSize(int &row, int &col)
 	struct winsize term;
 	if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &term) == -1 || term.ws_col == 0)
 	{
+		// If the system call doesn't work, just move the cursor as far
+		// as we can put it, and call our secondary function...
 		if(write(STDOUT_FILENO, "\033[999C\033[999B", 12) != 12) return false;
 		return bfTermSize(row, col);
 	}
@@ -186,8 +208,7 @@ void pg::draw(void)
 			if(padding) { while(padding--) this->scrBuf.append(" ", 1); }
 			this->scrBuf.append(message);
 		}
-
-		else this->scrBuf.append("`", 1);
+		else this->scrBuf.append(" ", 1);
 
 		this->scrBuf.append("\033[K", 3);
 		if(y < (this->getRows() - 1))
@@ -210,30 +231,98 @@ void pg::refresh(void)
 	this->scrBuf.append("\033[H", 3);
 	this->scrBuf.append("\033[?25h", 6);
 
-	// Just in case.
 	write(STDOUT_FILENO, this->scrBuf.data(), this->scrBuf.length());
 	this->scrBuf.clear();
 }
 
 // Reads a single unbuffered character from stdin.
-char readch(void)
+int pg::readch(void)
 {
 	int result;
   	char c;
+
   	while((result = read(STDIN_FILENO, &c, 1)) != 1)
 	{
     		if(result == -1 && errno != EAGAIN) error("read");
   	}
-  	return c;
+
+	if(c == '\033')
+	{
+		std::array<char, 3> sequence = { '0', '0', '0' };
+		if(read(STDIN_FILENO, &sequence.at(0), 1) != -1) return '\033';
+		if(read(STDIN_FILENO, &sequence.at(1), 1) != -1) return '\033';
+
+		if(sequence.at(0) == '[')
+		{
+			if(sequence.at(1) >= '0' && sequence.at(1) <= '9')
+			{
+				if(read(STDIN_FILENO, &sequence.at(2), 1) != 1) return '\033';
+        			if(sequence.at(2) == '~')
+				{
+          				switch(sequence.at(1))
+					{
+						case '1': return HOME_KEY;
+            					case '4': return END_KEY;
+						case '5': return PAGE_UP;
+						case '6': return PAGE_DOWN;
+						case '7': return HOME_KEY;
+						case '8': return END_KEY;
+					}
+        			}
+      			}
+			else
+			{
+				switch(sequence.at(1))
+				{
+					case 'A': return ARROW_UP;
+					case 'B': return ARROW_DOWN;
+					case 'C': return ARROW_RIGHT;
+					case 'D': return ARROW_LEFT;
+					case 'H': return HOME_KEY;
+          				case 'F': return END_KEY;
+				}
+			}
+		}
+		else if(sequence.at(0) == 'O')
+		{
+      			switch(sequence.at(1))
+			{
+        			case 'H': return HOME_KEY;
+        			case 'F': return END_KEY;
+      			}
+		}
+
+		return '\033';
+	}
+	else return c;
+}
+
+void pg::moveCursor(int key)
+{
+        switch(key)
+	{
+		case ARROW_UP:
+			if(this->cursor.second != 0) this->cursor.second--;
+			break;
+		case ARROW_LEFT:
+			if(this->cursor.first != 0)  this->cursor.first--;
+			break;
+		case ARROW_DOWN:
+			if(this->cursor.second != (this->dim.second - 1)) this->cursor.second++;
+			break;
+		case ARROW_RIGHT:
+			if(this->cursor.first != (this->dim.first - 1)) this->cursor.first++;
+			break;
+	}
 }
 
 // Returns a request for an exit, true for exit request and
 // false for otherwise. The reason we're doing this is so
 // that the deconstructor for 'pg' has the chance to actually
 // run, rather than exiting here
-bool parseKeys(void)
+bool pg::parseKeys(void)
 {
-	char in = readch();
+	int in = this->readch();
 	switch(in)
 	{
 		case CTRL_KEY('q'):
@@ -241,6 +330,23 @@ bool parseKeys(void)
 			write(STDOUT_FILENO, "\033[2J", 4);
         		write(STDOUT_FILENO, "\033[H", 3);
 			return false;
+
+		case HOME_KEY: 	this->cursor.first = 0; break;
+    		case END_KEY: 	this->cursor.first = this->dim.first - 1; break;
+
+    		case PAGE_UP:
+    		case PAGE_DOWN:
+      		{
+        		int times = this->dim.second;
+        		while(times--) this->moveCursor(in == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+      		} break;
+
+		case ARROW_UP:
+		case ARROW_DOWN:
+		case ARROW_LEFT:
+		case ARROW_RIGHT:
+			this->moveCursor(in);
+			break;
 	}
 
 	return true;
@@ -257,7 +363,7 @@ int main()
 	while(1 > 0)
 	{
 		mainScreen.refresh();
-		if(parseKeys() == false) break;
+		if(mainScreen.parseKeys() == false) break;
 	}
 
 	return 0;
