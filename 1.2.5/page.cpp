@@ -4,9 +4,12 @@
 // STL libraries
 #include <iostream>
 #include <fstream>
-#include <string>
+#include <format>
 #include <vector>
 #include <regex>
+
+#include <cstring>
+#include <cerrno>
 
 // POSIX libraries
 #include <unistd.h>
@@ -38,6 +41,12 @@ static std::string NEWLINE(NLCHARS);
 using namespace std::literals::string_literals;
 // A function for creating regex objects out of a string literal.
 static inline std::regex operator""_r(const char *in, std::size_t len)	{ return std::regex(in, len);}
+// Just something to have for familiarity sake, since std::format
+// takes "{}" instead of printf format specifiers.
+static inline std::string operator ""_p(const char *in, std::size_t len)
+{
+        return std::regex_replace(std::string(in, len), "%[a-z]"_r, "{}");
+}
 // String arithmetic functions for lazier operations, though at the cost of some readability (maybe?)
 static inline std::string operator+(std::string &in, std::string &what) { return in.append(what); }
 static inline std::string operator*(const std::string &in, int how)
@@ -47,6 +56,23 @@ static inline std::string operator*(const std::string &in, int how)
 	return ret;
 }
 
+// We're making our own printf() functions, so let's put them in a seperate namespace
+// so that the linker doesn't get confused.
+namespace
+{
+        template<typename... Args>
+        inline std::string sprintf(const std::string_view &format, Args&&... args)
+        {
+                return std::vformat(format, std::make_format_args(args...));
+        }
+
+        template<typename... Args>
+        inline void fprintf(std::ostream &out, const std::string_view &format, Args&&... args)
+        {
+                out << std::vformat(format, std::make_format_args(args...));
+        }
+};
+
 // (maybe) temporary stream insertion overloader, for displaying contents of a vector.
 template<typename T>
 std::ostream &operator<<(std::ostream &stream, const std::vector<T> &what)
@@ -55,27 +81,65 @@ std::ostream &operator<<(std::ostream &stream, const std::vector<T> &what)
 	return stream;
 }
 
+// I'd rather you not call this function directly, instead
+// I would rather you call the macro below
+void _error(const char *file, int line, const char *what)
+{
+        write(STDOUT_FILENO, "\033[2J", 4);
+        write(STDOUT_FILENO, "\033[H", 3);
+
+        fprintf(std::cerr, "(%d:%d) %s: %s\n"_p, file, line, what, strerror(errno));
+        exit(EXIT_FAILURE);
+}
+
+#define error(x)        _error(__FILE__, __LINE__, x)
+
 ////////////////////////////////////////////////////////
 // Pager class
 ////////////////////////////////////////////////////////
 
+static termios cooked;
 class terminal
 {
 	private:
-		struct termios *cooked, raw;
-		bool isRaw = false;
+		struct termios raw;
+		bool rawMode = false;
 
 		std::string scrBuf;
 
-		bool setRaw(void);
-		bool revert(void);
+		void setRaw(void);
+		void revert(void);
+
 	public:
 		 terminal();
 		~terminal();
 
-		std::string data(void) const { return this->scrBuf; }
 		void print(void);
 };
+
+void terminal::revert(void) { if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &cooked) == -1) error("tcsetattr"); return; }
+void terminal::setRaw(void)
+{
+	if(this->rawMode == true) return;
+        if(tcgetattr(STDIN_FILENO, &cooked) == -1) error("tcgetattr");
+        this->raw = cooked;
+
+        // Disable output processing
+        this->raw.c_oflag &= ~(OPOST);
+        // We also ensure that each character being sent is 8 bits.
+        this->raw.c_cflag |=  (CS8);
+        this->raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+        // So that read() doesn't halt the program to wait for input.
+        this->raw.c_cc[VMIN] = 0;
+        this->raw.c_cc[VTIME] = 1;
+
+        if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &this->raw) == -1) error("tcsetattr");
+        this->rawMode = true;
+	return;
+}
+
+terminal::terminal() { this->setRaw(); }
+terminal::~terminal(){ this->revert(); }
 
 class pager: public terminal
 {
@@ -88,12 +152,15 @@ class pager: public terminal
 
 	public:
 		pager();
-		pager(const std::string_view &in) : fileName(in) {};
 		~pager();
 
+		bool slurp();
 		bool slurp(const std::string_view &filename);
 		bool refresh(void);
 };
+
+pager::pager() : fileName("(null)") 			{}
+
 
 ////////////////////////////////////////////////////////
 // main()
