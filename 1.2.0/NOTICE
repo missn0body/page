@@ -1,0 +1,33 @@
+Hear ye, hear ye.
+
+At the moment, I have started a rewrite of this utility because
+I realized that it was getting bloated with functionaity that wouldn't
+be added. I was taking reference from Paige Ruten's 'kilo' tutorial
+that becomes rather apparent once you look at the source code.
+I already had a bit of worry out of following a tutorial of code and then
+passing it off (or giving the impression at least) as my own code, even
+if the two utilities have two different functionality.
+
+I had reached a point in the tutorial where I would have to completely
+redesign a data structure I had been using, and I had to sit back and
+realize what I was essentially doing. The need to start over grew greater,
+and I started to rationalize that decision, which actually didn't take much
+willpower.
+
+I had actually learned a lot from that tutorial, and anything I didn't know,
+I felt that I could reasonably extrapolate. And with the writing of this,
+I had decided to start over in a new version number. The version as of 1.2.0
+is essentially complete, with some glaring bugs, but files read through the
+utility are readable, and if this was the last terminal pager on the planet,
+then it wouldn't be too bad.
+
+So, the goals now are to be lightweight, using the capabilities of the newer
+C++ standards to simplify data structures. This version shall be 1.2.5 because
+version numbers make no sense. I will keep the code of the 1.2.0 version up
+because I don't want to suddenly erase all of that progress and pretend it never
+existed, plus it's a good way to measure just how I got here, if that makes
+sense. Well, if you want to contribute to this version, then by all means go for
+it. I'll be off making a better version.
+
+								-anson
+								10/5/2023
