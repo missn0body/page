@@ -18,3 +18,18 @@ folder hell on my personal computer where
 it belongs. If it's lucky then it might get 
 a public execution.
 
+### v.1.2.0
+This is the first version to be featured on
+this repo, but was abandoned after the project
+became too bloated with features that would
+never be implemented since I was actually
+following along with a tutorial for a text
+editor. More information is found in the NOTICE
+file in that folder. Otherwise, it is technically
+finished as a version.
+
+### v.1.2.5
+This is the current version that I am working
+on, from scratch and no tutorial this time. Again,
+look at the NOTICE in the previous version's folder
+for more information.
