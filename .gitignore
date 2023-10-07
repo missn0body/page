@@ -1,0 +1,7 @@
+# ignore the license, it's a one-time copy and paste deal
+LICENSE
+
+#ignore previous version
+1.2.0/*
+
+# everything else is fair game wheeeeeeeeeeeeeee
