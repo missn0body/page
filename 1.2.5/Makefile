@@ -1,3 +1,9 @@
+# Simply replace CC with your own compiler
+# if it doesn't match the ones listed below.
+
+#CC = i586-pc-msdosdjgpp-g++
+#CC = i686-w64-mingw32-g++
+#CC = x86_64-w64-mingw32-g++
 CC = g++
 CFLAGS = -Wall -Wextra -Wpedantic -g -Os -std=c++20
 
