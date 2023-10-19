@@ -8,8 +8,10 @@
 #include <vector>
 #include <regex>
 
-#include <cstring>
-#include <cerrno>
+// C libraries
+#include <cstdlib> // atexit()
+#include <cstring> // strerror()
+#include <cerrno> // errno
 
 // POSIX libraries
 #include <unistd.h>
@@ -34,9 +36,13 @@ static int LINE_SPACE = SPACE_DEF;
 
 static std::string NEWLINE(NLCHARS);
 
+static termios cooked;
+
 ////////////////////////////////////////////////////////
 // Utility functions
 ////////////////////////////////////////////////////////
+
+#define CTRL_KEY(x)	((x) & 0x1f)
 
 using namespace std::literals::string_literals;
 // A function for creating regex objects out of a string literal.
@@ -85,10 +91,12 @@ std::ostream &operator<<(std::ostream &stream, const std::vector<T> &what)
 // I would rather you call the macro below
 void _error(const char *file, int line, const char *what)
 {
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &cooked);
         write(STDOUT_FILENO, "\033[2J", 4);
         write(STDOUT_FILENO, "\033[H", 3);
 
         fprintf(std::cerr, "(%d:%d) %s: %s\n"_p, file, line, what, strerror(errno));
+	//std::cerr << "(" << file << ":" << line << ") " << what << ": " << strerror(errno) << std::endl;
         exit(EXIT_FAILURE);
 }
 
@@ -98,7 +106,6 @@ void _error(const char *file, int line, const char *what)
 // Pager class
 ////////////////////////////////////////////////////////
 
-static termios cooked;
 class terminal
 {
 	private:
@@ -107,14 +114,18 @@ class terminal
 
 		std::string scrBuf;
 
-		void setRaw(void);
-		void revert(void);
+		void setRaw		(void);
+		void revert		(void);
+		int readch		(void);
 
 	public:
 		 terminal();
 		~terminal();
 
-		void print(void);
+		virtual void draw	(void) = 0;
+
+		bool parseKeys		(void);
+		void refresh		(void);
 };
 
 void terminal::revert(void) { if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &cooked) == -1) error("tcsetattr"); return; }
@@ -141,25 +152,107 @@ void terminal::setRaw(void)
 terminal::terminal() { this->setRaw(); }
 terminal::~terminal(){ this->revert(); }
 
-class pager: public terminal
+int terminal::readch(void)
+{
+	int result;
+        char c;
+
+        while((result = read(STDIN_FILENO, &c, 1)) != 1)
+        {
+                if(result == -1 && errno != EAGAIN) error("read");
+        }
+	return c;
+}
+
+bool terminal::parseKeys(void)
+{
+        int in = this->readch();
+        switch(in)
+        {
+                case CTRL_KEY('q'):
+                case '\n':
+                        write(STDOUT_FILENO, "\033[2J", 4);
+                        write(STDOUT_FILENO, "\033[H", 3);
+                        return false;
+        }
+
+        return true;
+}
+
+void terminal::refresh(void)
+{
+	this->scrBuf.append("\033[?25l", 6);
+        this->scrBuf.append("\033[H", 3);
+
+        this->draw();
+        this->scrBuf.append("\033[?25h", 6);
+
+        write(STDOUT_FILENO, this->scrBuf.data(), this->scrBuf.length());
+        this->scrBuf.clear();
+}
+
+//class pager : public terminal
+class pager
 {
 	private:
-		std::string_view fileName;
+		std::string fileName;
 		std::ifstream fObj;
 
 		std::vector<std::string> lines;
 		int linecount = 0;
 
 	public:
-		pager();
-		~pager();
+		explicit pager();
 
-		bool slurp();
-		bool slurp(const std::string_view &filename);
-		bool refresh(void);
+		void slurp	(const std::string &name);
+		void display	(void) const { std::cout << this->lines << std::endl; }
+		void draw	(void);
 };
 
-pager::pager() : fileName("(null)") 			{}
+pager::pager() : fileName("(null)") {}
+
+void pager::slurp(const std::string &name)
+{
+	this->fileName = name;
+	this->fObj.open(fileName);
+	if(!fObj) error("fstream()");
+
+	// Iterating through file, line by line...
+        for(std::string index; std::getline(this->fObj, index); this->linecount++)
+        {
+                // Replacing a tab character with spaces, for easier displaying on a
+                // terminal set with no output processing
+                index = std::regex_replace(index, "\t"_r, std::string(TAB_COUNT, ' '));
+                // Line spacing can be user determined, so we need to make sure that the
+                // user gives a valid value. If any funny business is detected, just
+                // keep the line as is.
+                index = (LINE_SPACE > 1) ? index + (NEWLINE * LINE_SPACE) : index;
+                // The pager can also choose to display line numbers, which adds a bit
+                // of complexity; since a tab character pushes text into the next "field"
+                // characters can still be inserted into the first field, until
+                // they are overflown into the next field to preserve the spaces
+                // that the tabs make.
+                // Since output processing is disabled, then we need to do
+                // something similar on our own.
+                std::string linenum(std::to_string(linecount));
+                if((std::size_t)TAB_COUNT < linenum.length())
+                {
+                        // If the user has set a low tab count, then we need to make
+                        // sure that the numbers don't intrude on the data being displayed.
+                        TAB_COUNT += TAB_COUNT;
+                        NUM_MARGIN++;
+                }
+                // And make sure to deduct the width of the line number from a tab section.
+                std::string spacer((TAB_COUNT - linenum.length()) + NUM_MARGIN, ' ');
+                // Lines are in the vector now.
+                this->lines.push_back(linenum + spacer + index);
+        }
+}
+
+void pager::draw(void)
+{
+	//TODO
+}
 
 
 ////////////////////////////////////////////////////////
@@ -168,42 +261,9 @@ pager::pager() : fileName("(null)") 			{}
 
 int main(int argc, char *argv[])
 {
-	std::ifstream fObj(argv[1]);
-	if(!fObj) return -1;
+	pager pg;
+	pg.slurp(argv[1]);
 
-	int linecount = 0;
-	std::vector<std::string> lines;
-	// Iterating through file, line by line...
-	for(std::string index; std::getline(fObj, index); linecount++)
-	{
-		// Replacing a tab character with spaces, for easier displaying on a
-		// terminal set with no output processing
-		index = std::regex_replace(index, "\t"_r, std::string(TAB_COUNT, ' '));
-		// Line spacing can be user determined, so we need to make sure that the
-		// user gives a valid value. If any funny business is detected, just
-		// keep the line as is.
-		index = (LINE_SPACE > 1) ? index + (NEWLINE * LINE_SPACE) : index;
-		// The pager can also choose to display line numbers, which adds a bit
-		// of complexity; since a tab character pushes text into the next "field"
-                // characters can still be inserted into the first field, until
-                // they are overflown into the next field to preserve the spaces
-                // that the tabs make.
-		// Since output processing is disabled, then we need to do
-                // something similar on our own.
-		std::string linenum(std::to_string(linecount));
-		if((std::size_t)TAB_COUNT < linenum.length())
-		{
-			// If the user has set a low tab count, then we need to make
-			// sure that the numbers don't intrude on the data being displayed.
-			TAB_COUNT += TAB_COUNT;
-			NUM_MARGIN++;
-		}
-		// And make sure to deduct the width of the line number from a tab section.
-		std::string spacer((TAB_COUNT - linenum.length()) + NUM_MARGIN, ' ');
-		// Lines are in the vector now.
-		lines.push_back(std::to_string(linecount) + spacer + index);
-	}
-
-	std::cout << lines << std::endl;
+	pg.display();
 	return 0;
 }
